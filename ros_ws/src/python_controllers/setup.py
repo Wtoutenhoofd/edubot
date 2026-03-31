@@ -22,9 +22,9 @@ setup(
         'console_scripts': [
             'example_pos_traj = python_controllers.example_pos_traj:main',
             'example_vel_traj = python_controllers.example_vel_traj:main',
-            'ik_poses         = python_controllers.ik_poses:main',
+            'ik_poses = python_controllers.ik_poses:main',
             'ik_solutions_viz = python_controllers.ik_solutions_viz:main',
-            'ik_circle        = python_controllers.ik_circle:main',
+            'ik_circle = python_controllers.ik_circle:main',
         ],
     },
 )
