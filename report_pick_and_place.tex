@@ -1,0 +1,102 @@
+\section*{4. Pick and Place}
+
+The strategy for the pick and place task is built around two fixed Cartesian waypoints:
+one above the pick-up location and one above the place location, both separated by a fixed
+base-joint rotation of $2 \times 0.7$\,rad.  Using inverse kinematics these Cartesian poses
+are converted to joint-space waypoints at initialisation time.  The robot then executes the
+following sequence:
+
+\begin{itemize}
+    \item Move in joint space to above the pick-up location with the gripper open.
+
+    \item Move straight down in Cartesian space until a collision is detected.
+
+    \item Close the gripper until resistance is sensed.
+
+    \item Move in joint space to the midpoint waypoint.
+
+    \item Move in joint space to above the place location.
+
+    \item Move straight down in Cartesian space until a collision is detected.
+
+    \item Open the gripper.
+
+    \item Rise back to the midpoint waypoint.
+
+    \item Move in joint space to above the place location (slightly higher reference height
+          for the return pick).
+
+    \item Move straight down in Cartesian space until a collision is detected.
+
+    \item Close the gripper.
+
+    \item Move in joint space back to above the pick-up location.
+
+    \item Move straight down in Cartesian space until a collision is detected.
+
+    \item Open the gripper --- task complete.
+\end{itemize}
+
+Collision detection is used identically for both the descend-to-pick and descend-to-place
+phases.  It works by publishing a desired downward Cartesian velocity via inverse kinematics
+and monitoring the end-effector $z$-position to determine whether the end-effector is still
+moving or has made contact.  The controller sets a downward speed (in Cartesian space), a
+low velocity threshold below which motion is deemed to have stopped, and a minimum time for
+which the robot must remain stationary before the contact is confirmed.  These two parameters
+are necessary to handle the noise and inaccuracies in the reported joint states.
+
+Gripper-force regulation is implemented in a similar fashion.  The gripper is commanded
+toward a closed target position; once the gripper velocity falls below a threshold for a
+specified hold time, the controller assumes the object is grasped and freezes the gripper
+command at its current position.  This prevents the gripper from crushing the object.
+
+\subsection*{Supporting code}
+
+The controller is implemented in \texttt{comp.cpp} and executed via the scripts
+\texttt{comp\_hw.sh} and \texttt{comp\_sim.sh}.  The source code is located in
+\texttt{/ros\_ws/src/controllers\_new/}.  There are also the files
+\texttt{kinematics.hpp/.cpp} which contain all the mathematics required to determine
+trajectories.  This includes the Jacobian, inverse velocity kinematics and inverse
+kinematics.
+
+The code for the kinematics is structured as follows.  At its foundation there is the
+virtual base class \texttt{RobotPart}, from which the \texttt{Link} and \texttt{Joint}
+classes are derived.  From the \texttt{Joint} class the \texttt{Revolute} class is derived,
+implementing the joint interface.  These objects are used by the generic
+\texttt{SequentialRobot} class, which encapsulates all forward and inverse kinematics of
+any sequential robot.  In the pick-and-place controller this class is also used for state
+tracking: the joint states reported by the \texttt{joint\_states} topic are forwarded to a
+\texttt{SequentialRobot} object, which then always has the current forward kinematics and
+the Jacobian available.
+
+The inverse kinematics implementation is an iterative method based on the Jacobian.  An
+initial guess can be provided by setting the robot state before calling
+\texttt{required\_joint\_angles}.  From this initial guess, the state is incrementally
+pushed towards the desired pose.  This is done by computing the pose error, which is
+interpreted as a desired end-effector velocity pointing towards the target pose.  The
+Jacobian is then used to solve for the required joint velocities (via
+\texttt{solve\_for\_joint\_velocities\_dls}), which are multiplied by a learning rate and
+added to the joint positions (implicitly clamping between the limits in the \texttt{Joint}
+class).  This repeats until convergence or divergence; if divergence occurs, the solver
+retries with random initial guesses to improve the chance of finding a solution.
+
+The pose error is a 6D vector of the position error and the rotation error.  The position
+error is trivial; the rotation error is obtained from the current transform from forward
+kinematics and the desired transform from Euler angles.  The rotation parts are converted to
+quaternions, where the difference between them is used as the error.  This error quaternion
+is converted to an axis-angle representation which represents the rotational velocity towards
+the desired pose.
+
+\subsection*{Results}
+
+The robot successfully completed the full pick-and-place cycle with a fragile object.  The
+collision-detection approach proved reliable for locating the surface of the platform without
+requiring knowledge of its exact height.  The gripper-force regulation prevented excessive
+squeezing: once the object resisted further closure the gripper command was frozen, and the
+object arrived undamaged at the destination.
+
+The main challenges observed were oscillations in the joint positions when holding the
+gripper stationary during the descent phase, and occasional IK failures when the target
+pose was near a kinematic singularity.  Performance could be improved by switching to
+velocity control mode for the approach phases, which would allow much smoother and faster
+motion without the position-control hunting behaviour.
